@@ -8,16 +8,30 @@ class Retrieve:
     # Create new Retrieve object ​storing index and term weighting 
     # scheme. (You can extend this method, as required.)
     def __init__(self,index, term_weighting): #term_weighting = tf,tfidf, binary ,etc
-        self.index = index
+        self.index = index #index = {term: {doc_id: tf, doc_id: tf, ...}, ...}
         self.term_weighting = term_weighting
         self.num_docs = self.compute_number_of_documents()
+        self.doc_norms = {"binary": {}, "tf": {}, "tfidf": {}}
+        self.sqrt_doc_norms = {"binary": {}, "tf": {}, "tfidf": {}}
         self.idf = {}
 
         # IDF precomputation
         for term in index:
             df = len(index[term])
-            idf = math.log(self.num_docs/df)
+            idf = math.log10((self.num_docs)/df)
             self.idf[term] = idf
+
+        # precomputing ||D|| based on term weighting
+        for term, postings in self.index.items():
+            for doc_id, tf in postings.items():
+                self.doc_norms["binary"][doc_id] = self.doc_norms["binary"].get(doc_id, 0) + 1
+                self.doc_norms["tf"][doc_id] = self.doc_norms["tf"].get(doc_id, 0) + math.pow(1 + math.log10(tf), 2)
+                self.doc_norms["tfidf"][doc_id] = self.doc_norms["tfidf"].get(doc_id, 0) + math.pow( ( (1 + math.log10(tf)) * self.idf[term]), 2)
+
+        for weighting in self.doc_norms:
+            for doc_id, norm in self.doc_norms[weighting].items():
+                self.sqrt_doc_norms[weighting][doc_id] = math.sqrt(norm)
+        
 
         
     def compute_number_of_documents(self):
@@ -40,30 +54,20 @@ class Retrieve:
     
     def tf_weighting(self, tf_freq):
         # TF weighting -- returns the same thing as tf_freq - consider replacing with tf_freq directly or
-        # make use of smoothing or normalization and keep this function for that purpose
         # Returns: {doc_id: {term: tf}}
         tfw_results = {}
         for doc_id, word_dict in tf_freq.items():
             tfw_results[doc_id] = {}
             for word, tf in word_dict.items():
-                tfw_results[doc_id][word] = tf  # weight = raw term frequency
+                if tf > 0:
+                    tfw_results[doc_id][word] = 1 + math.log10(tf)  # weight = raw term frequency
+
         return tfw_results
     
     def tfidf_weighting(self, tf_freq):
         # TF-IDF weighting: tf * idf for each term
         # Returns: {doc_id: {term: tf*idf}}
-        # print(self.index) # {}'string':{doc_id: tf, ...}}
-        # Precompute idf for all terms in collection (not just query terms)
-        """     
-        idf_cache = {}
-        for term in self.index:
-            df = len(self.index.get(term, {})) #returns the no. of documents containing the term
-            if df != 0:
-                idf = math.log(self.num_docs / df) # log (|N|/df)
-            else:
-                idf = 0.0
-            idf_cache[term] = idf 
-            """
+
         idf_cache = self.idf  # use precomputed idf values
         
         # Compute TF-IDF weights for each document
@@ -71,8 +75,10 @@ class Retrieve:
         for doc_id, word_dict in tf_freq.items():
             tfidf_results[doc_id] = {}
             for word, tf in word_dict.items():
+                if tf > 0:
+                    tf_normalized = 1 + math.log10(tf)
                 idf = idf_cache.get(word, 0.0)
-                tfidf_results[doc_id][word] = tf * idf
+                tfidf_results[doc_id][word] = tf_normalized * idf
         
         return tfidf_results
     
@@ -90,22 +96,15 @@ class Retrieve:
                 query_vector[term] = 1
         
         elif weighting_scheme == 'tf':
-            for term, count in query_counts.items():
-                query_vector[term] = count
+            for term, tf in query_counts.items():
+                query_vector[term] = 1 + math.log10(tf)
         
         elif weighting_scheme == 'tfidf':
-            idf_cache = {} # is this redundant to tfidf function?
-            for term in self.index:
-                df = len(self.index.get(term, {}))
-                if df != 0:
-                    idf = math.log(self.num_docs / df)
-                else:
-                    idf = 0.0
-                idf_cache[term] = idf
-            
             for term, qtf in query_counts.items():
-                idf = idf_cache.get(term, 0.0)
-                query_vector[term] = qtf * idf #tf.idf weighting
+                if qtf > 0:
+                    tf_normalized = 1 + math.log10(qtf)
+                idf = self.idf.get(term, 0.0)  # use precomputed idf
+                query_vector[term] = tf_normalized * idf  # tf*idf weighting
         
         # Step 2: Compute query vector norm - summation of Qi squared
         query_norm = 0.0
@@ -125,10 +124,7 @@ class Retrieve:
                     dot_product += query_weight * doc_weights[term]
             
             # Document vector norm - summation of Di squared
-            doc_norm = 0.0
-            for weight in doc_weights.values():
-                doc_norm += weight ** 2
-            doc_norm = math.sqrt(doc_norm) if doc_norm > 0 else 1.0
+            doc_norm = self.sqrt_doc_norms[weighting_scheme].get(doc_id, 1.0)
             
             # Cosine similarity
             if query_norm > 0 and doc_norm > 0:
