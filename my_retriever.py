@@ -16,7 +16,7 @@ class Retrieve:
         # IDF precomputation
         for term in index:
             df = len(index[term])
-            idf = math.log(self.num_docs/df + 1)
+            idf = math.log(self.num_docs/df)
             self.idf[term] = idf
 
         
