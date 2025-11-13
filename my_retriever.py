@@ -11,6 +11,14 @@ class Retrieve:
         self.index = index
         self.term_weighting = term_weighting
         self.num_docs = self.compute_number_of_documents()
+        self.idf = {}
+
+        # IDF precomputation
+        for term in index:
+            df = len(index[term])
+            idf = math.log(self.num_docs/df + 1)
+            self.idf[term] = idf
+
         
     def compute_number_of_documents(self):
         self.doc_ids = set() 
@@ -22,15 +30,17 @@ class Retrieve:
     def binary_weighting(self, tf_freq): 
         # Binary weighting: 1 if term present in document, 0 otherwise
         # Returns: {doc_id: {term: 1 or 0}}
+        # tf_freq: {doc_id: {term: tf}}, tf_freq.items() = list of (doc_id, term and tf) pairs
         binary_results = {}
         for doc_id, word_dict in tf_freq.items():
             binary_results[doc_id] = {}
-            for word, tf in word_dict.items():
-                binary_results[doc_id][word] = 1  # term is present, weight = 1
-        return binary_results
+            for word, tf in word_dict.items(): #term and tf pairs
+                binary_results[doc_id][word] = 1  #since term is present, weight = 1
+        return binary_results #returns doc vectors with binary weights
     
     def tf_weighting(self, tf_freq):
-        # TF weighting: raw term frequency
+        # TF weighting -- returns the same thing as tf_freq - consider replacing with tf_freq directly or
+        # make use of smoothing or normalization and keep this function for that purpose
         # Returns: {doc_id: {term: tf}}
         tfw_results = {}
         for doc_id, word_dict in tf_freq.items():
@@ -42,16 +52,19 @@ class Retrieve:
     def tfidf_weighting(self, tf_freq):
         # TF-IDF weighting: tf * idf for each term
         # Returns: {doc_id: {term: tf*idf}}
-        
+        # print(self.index) # {}'string':{doc_id: tf, ...}}
         # Precompute idf for all terms in collection (not just query terms)
+        """     
         idf_cache = {}
         for term in self.index:
-            df = len(self.index.get(term, {}))
+            df = len(self.index.get(term, {})) #returns the no. of documents containing the term
             if df != 0:
-                idf = math.log(self.num_docs / df)
+                idf = math.log(self.num_docs / df) # log (|N|/df)
             else:
                 idf = 0.0
-            idf_cache[term] = idf
+            idf_cache[term] = idf 
+            """
+        idf_cache = self.idf  # use precomputed idf values
         
         # Compute TF-IDF weights for each document
         tfidf_results = {}
@@ -81,7 +94,7 @@ class Retrieve:
                 query_vector[term] = count
         
         elif weighting_scheme == 'tfidf':
-            idf_cache = {}
+            idf_cache = {} # is this redundant to tfidf function?
             for term in self.index:
                 df = len(self.index.get(term, {}))
                 if df != 0:
@@ -92,9 +105,9 @@ class Retrieve:
             
             for term, qtf in query_counts.items():
                 idf = idf_cache.get(term, 0.0)
-                query_vector[term] = qtf * idf
+                query_vector[term] = qtf * idf #tf.idf weighting
         
-        # Step 2: Compute query vector norm
+        # Step 2: Compute query vector norm - summation of Qi squared
         query_norm = 0.0
         for weight in query_vector.values():
             query_norm += weight ** 2
@@ -104,12 +117,14 @@ class Retrieve:
         cosine_results = {}
         for doc_id, doc_weights in doc_vectors.items():
             # Dot product: sum of (query_weight * doc_weight) for overlapping terms
+            # sparse numerator
+
             dot_product = 0.0
             for term, query_weight in query_vector.items():
                 if term in doc_weights:
                     dot_product += query_weight * doc_weights[term]
             
-            # Document vector norm
+            # Document vector norm - summation of Di squared
             doc_norm = 0.0
             for weight in doc_weights.values():
                 doc_norm += weight ** 2
@@ -146,7 +161,7 @@ class Retrieve:
         # If no documents match, return empty list
         if not tf_freq:
             return []
-
+        
         # Step 1: Apply term weighting scheme
         if self.term_weighting == 'binary':
             doc_vectors = self.binary_weighting(tf_freq)
@@ -164,4 +179,4 @@ class Retrieve:
         # Step 3: Return ranked list of doc ids (descending by score)
         ranked_docs = sorted(scores.keys(), key=lambda doc_id: -scores[doc_id])
         return ranked_docs
-
+    
