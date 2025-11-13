@@ -25,8 +25,8 @@ class Retrieve:
         for term, postings in self.index.items():
             for doc_id, tf in postings.items():
                 self.doc_norms["binary"][doc_id] = self.doc_norms["binary"].get(doc_id, 0) + 1
-                self.doc_norms["tf"][doc_id] = self.doc_norms["tf"].get(doc_id, 0) + math.pow(1 + math.log10(tf), 2)
-                self.doc_norms["tfidf"][doc_id] = self.doc_norms["tfidf"].get(doc_id, 0) + math.pow( ( (1 + math.log10(tf)) * self.idf[term]), 2)
+                self.doc_norms["tf"][doc_id] = self.doc_norms["tf"].get(doc_id, 0) + math.pow(tf, 2)
+                self.doc_norms["tfidf"][doc_id] = self.doc_norms["tfidf"].get(doc_id, 0) + math.pow((tf * self.idf[term]), 2)
 
         for weighting in self.doc_norms:
             for doc_id, norm in self.doc_norms[weighting].items():
@@ -59,8 +59,7 @@ class Retrieve:
         for doc_id, word_dict in tf_freq.items():
             tfw_results[doc_id] = {}
             for word, tf in word_dict.items():
-                if tf > 0:
-                    tfw_results[doc_id][word] = 1 + math.log10(tf)  # weight = raw term frequency
+                tfw_results[doc_id][word] = tf  # weight = raw term frequency
 
         return tfw_results
     
@@ -75,10 +74,8 @@ class Retrieve:
         for doc_id, word_dict in tf_freq.items():
             tfidf_results[doc_id] = {}
             for word, tf in word_dict.items():
-                if tf > 0:
-                    tf_normalized = 1 + math.log10(tf)
                 idf = idf_cache.get(word, 0.0)
-                tfidf_results[doc_id][word] = tf_normalized * idf
+                tfidf_results[doc_id][word] = tf * idf
         
         return tfidf_results
     
@@ -97,14 +94,12 @@ class Retrieve:
         
         elif weighting_scheme == 'tf':
             for term, tf in query_counts.items():
-                query_vector[term] = 1 + math.log10(tf)
+                query_vector[term] = tf
         
         elif weighting_scheme == 'tfidf':
             for term, qtf in query_counts.items():
-                if qtf > 0:
-                    tf_normalized = 1 + math.log10(qtf)
                 idf = self.idf.get(term, 0.0)  # use precomputed idf
-                query_vector[term] = tf_normalized * idf  # tf*idf weighting
+                query_vector[term] = qtf * idf  # tf*idf weighting
         
         # Step 2: Compute query vector norm - summation of Qi squared
         query_norm = 0.0
